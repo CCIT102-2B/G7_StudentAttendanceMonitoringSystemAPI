@@ -1,5 +1,8 @@
+
 using Microsoft.AspNetCore.Mvc;
-using StudentAttendanceMonitoringSystem.API.Models;
+using Microsoft.EntityFrameworkCore;
+using StudentAttendanceMonitoringSystem;
+using StudentAttendanceMonitoringSystem.Models;
 
 namespace StudentAttendanceMonitoringSystem.API.Controllers
 {
@@ -7,21 +10,27 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
     [Route("api/[controller]")]
     public class AttendanceController : ControllerBase
     {
-        private static readonly List<Attendance> records = new();
-        private static int nextId = 1;
+        private readonly ApplicationDbContext _context;
+
+        public AttendanceController(ApplicationDbContext context)
+        {
+            _context = context;
+        }
 
         // GET: api/attendance
         [HttpGet]
-        public IActionResult GetAttendance()
+        public async Task<IActionResult> GetAttendance()
         {
+            var records = await _context.AttendanceRecords.ToListAsync();
             return Ok(records);
         }
 
         // GET: api/attendance/1
         [HttpGet("{id:int}")]
-        public IActionResult GetAttendanceById(int id)
+        public async Task<IActionResult> GetAttendanceById(int id)
         {
-            var record = records.FirstOrDefault(a => a.Id == id);
+            var record = await _context.AttendanceRecords
+                .FirstOrDefaultAsync(a => a.Id == id);
 
             if (record == null)
                 return NotFound(new { message = "Attendance record not found." });
@@ -31,7 +40,7 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
 
         // POST: api/attendance
         [HttpPost]
-        public IActionResult AddAttendance(Attendance attendance)
+        public async Task<IActionResult> AddAttendance(Attendance attendance)
         {
             if (attendance.StudentId <= 0)
                 return BadRequest(new { message = "Invalid Student ID." });
@@ -39,27 +48,35 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
             if (attendance.Status is not ("Present" or "Late" or "Absent"))
                 return BadRequest(new { message = "Invalid attendance status." });
 
-            if (records.Any(a =>
+            bool studentExists = await _context.Students
+                .AnyAsync(s => s.Id == attendance.StudentId);
+
+            if (!studentExists)
+                return BadRequest(new { message = "Student does not exist." });
+
+            bool alreadyExists = await _context.AttendanceRecords.AnyAsync(a =>
                 a.StudentId == attendance.StudentId &&
-                a.AttendanceDate.Date == attendance.AttendanceDate.Date))
-            {
+                a.AttendanceDate.Date == attendance.AttendanceDate.Date);
+
+            if (alreadyExists)
                 return Conflict(new
                 {
                     message = "Attendance already exists for this student on this date."
                 });
-            }
 
-            attendance.Id = nextId++;
-            records.Add(attendance);
+            _context.AttendanceRecords.Add(attendance);
+            await _context.SaveChangesAsync();
 
             return Ok(attendance);
         }
 
         // PUT: api/attendance/1
         [HttpPut("{id:int}")]
-        public IActionResult UpdateAttendance(int id, Attendance updated)
+        public async Task<IActionResult> UpdateAttendance(
+            int id, Attendance updated)
         {
-            var record = records.FirstOrDefault(a => a.Id == id);
+            var record = await _context.AttendanceRecords
+                .FirstOrDefaultAsync(a => a.Id == id);
 
             if (record == null)
                 return NotFound(new { message = "Attendance record not found." });
@@ -70,36 +87,47 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
             if (updated.Status is not ("Present" or "Late" or "Absent"))
                 return BadRequest(new { message = "Invalid attendance status." });
 
-            if (records.Any(a =>
+            bool studentExists = await _context.Students
+                .AnyAsync(s => s.Id == updated.StudentId);
+
+            if (!studentExists)
+                return BadRequest(new { message = "Student does not exist." });
+
+            bool duplicate = await _context.AttendanceRecords.AnyAsync(a =>
                 a.Id != id &&
                 a.StudentId == updated.StudentId &&
-                a.AttendanceDate.Date == updated.AttendanceDate.Date))
-            {
+                a.AttendanceDate.Date == updated.AttendanceDate.Date);
+
+            if (duplicate)
                 return Conflict(new
                 {
                     message = "Attendance already exists for this student on this date."
                 });
-            }
 
             record.StudentId = updated.StudentId;
             record.AttendanceDate = updated.AttendanceDate;
             record.TimeIn = updated.TimeIn;
             record.TimeOut = updated.TimeOut;
             record.Status = updated.Status;
+            record.Remarks = updated.Remarks;
+
+            await _context.SaveChangesAsync();
 
             return Ok(record);
         }
 
         // DELETE: api/attendance/1
         [HttpDelete("{id:int}")]
-        public IActionResult DeleteAttendance(int id)
+        public async Task<IActionResult> DeleteAttendance(int id)
         {
-            var record = records.FirstOrDefault(a => a.Id == id);
+            var record = await _context.AttendanceRecords
+                .FirstOrDefaultAsync(a => a.Id == id);
 
             if (record == null)
                 return NotFound(new { message = "Attendance record not found." });
 
-            records.Remove(record);
+            _context.AttendanceRecords.Remove(record);
+            await _context.SaveChangesAsync();
 
             return NoContent();
         }
