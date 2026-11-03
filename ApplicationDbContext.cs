@@ -32,7 +32,39 @@ namespace StudentAttendanceMonitoringSystem
                     .HasColumnName("StudentId");
 
                 entity.Property(s => s.StudentId)
-                    .HasColumnName("StudentNumber");
+                    .HasColumnName("StudentNumber")
+                    .HasMaxLength(30)
+                    .IsRequired();
+
+                entity.Property(s => s.FirstName)
+                    .HasMaxLength(100)
+                    .IsRequired();
+
+                entity.Property(s => s.LastName)
+                    .HasMaxLength(100)
+                    .IsRequired();
+
+                entity.Property(s => s.Email)
+                    .HasMaxLength(150)
+                    .IsRequired(false);
+
+                entity.Property(s => s.Course)
+                    .HasMaxLength(100)
+                    .IsRequired(false);
+
+                entity.Property(s => s.YearLevel)
+                    .HasMaxLength(20)
+                    .IsRequired(false);
+
+                entity.Property(s => s.Section)
+                    .HasMaxLength(50)
+                    .IsRequired(false);
+
+                entity.Property(s => s.IsActive)
+                    .IsRequired();
+
+                entity.Property(s => s.CreatedAt)
+                    .IsRequired();
 
                 entity.HasIndex(s => s.StudentId)
                     .IsUnique();
@@ -48,7 +80,25 @@ namespace StudentAttendanceMonitoringSystem
                 entity.Property(u => u.Id)
                     .HasColumnName("AdminId");
 
+                entity.Property(u => u.Email)
+                    .IsRequired()
+                    .HasMaxLength(50);
+
+                entity.Property(u => u.PasswordHash)
+                    .IsRequired()
+                    .HasMaxLength(255);
+
+                entity.Property(u => u.FullName)
+                    .IsRequired()
+                    .HasMaxLength(150);
+
+                entity.Property(u => u.CreatedAt)
+                    .IsRequired();
+
                 entity.Ignore(u => u.Role);
+
+                entity.HasIndex(u => u.Email)
+                    .IsUnique();
             });
 
             // ATTENDANCE TABLE
@@ -60,6 +110,24 @@ namespace StudentAttendanceMonitoringSystem
 
                 entity.Property(a => a.Id)
                     .HasColumnName("AttendanceId");
+
+                entity.Property(a => a.AttendanceDate)
+                    .HasColumnType("date")
+                    .IsRequired();
+
+                entity.Property(a => a.TimeIn)
+                    .HasColumnType("time");
+
+                entity.Property(a => a.TimeOut)
+                    .HasColumnType("time");
+
+                entity.Property(a => a.Status)
+                    .HasMaxLength(20)
+                    .IsRequired();
+
+                entity.Property(a => a.Remarks)
+                    .HasMaxLength(500)
+                    .IsRequired(false);
 
                 entity.HasIndex(a => new
                 {
