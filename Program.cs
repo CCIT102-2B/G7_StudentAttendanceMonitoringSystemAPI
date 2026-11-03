@@ -1,23 +1,26 @@
 
+using Scalar.AspNetCore;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using StudentAttendanceMonitoringSystem;
+using StudentAttendanceMonitoringSystem.API.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add Controllers
 builder.Services.AddControllers();
 
-// Add Swagger
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddOpenApi();
 
-// Database Connection
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")
     ));
 
-// Enable CORS for Frontend
+builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+builder.Services.AddScoped<IPasswordHasher<Student>, PasswordHasher<Student>>();
+
+builder.Services.AddAuthorization();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
@@ -30,20 +33,15 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Swagger Configuration
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.MapOpenApi();
+    app.MapScalarApiReference();
 }
 
-// CORS Middleware
 app.UseCors("AllowFrontend");
-
-// Authorization
 app.UseAuthorization();
 
-// Map API Controllers
 app.MapControllers();
 
 app.Run();

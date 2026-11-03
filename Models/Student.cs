@@ -13,11 +13,14 @@ namespace StudentAttendanceMonitoringSystem.API.Models
 
         public string? Email { get; set; }
 
-        public string Course { get; set; } = string.Empty;
+        public string? Course { get; set; }
 
-        public string YearLevel { get; set; } = string.Empty;
+        public string? YearLevel { get; set; }
 
         public string? Section { get; set; }
+
+        // Student login password
+        public string? PasswordHash { get; set; }
 
         public bool IsActive { get; set; } = true;
 
