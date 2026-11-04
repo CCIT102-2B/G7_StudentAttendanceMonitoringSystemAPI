@@ -19,9 +19,6 @@ namespace StudentAttendanceMonitoringSystem.API.Models
 
         public string? Section { get; set; }
 
-        // Student login password
-        public string? PasswordHash { get; set; }
-
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; }

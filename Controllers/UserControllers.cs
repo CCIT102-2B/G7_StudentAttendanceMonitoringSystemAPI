@@ -1,7 +1,12 @@
 
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using StudentAttendanceMonitoringSystem;
 using StudentAttendanceMonitoringSystem.API.Models;
 
@@ -9,42 +14,43 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Roles = "User")]
     public class UsersController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IPasswordHasher<User> _userPasswordHasher;
-        private readonly IPasswordHasher<Student> _studentPasswordHasher;
+        private readonly IConfiguration _configuration;
 
         public UsersController(
             ApplicationDbContext context,
             IPasswordHasher<User> userPasswordHasher,
-            IPasswordHasher<Student> studentPasswordHasher)
+            IConfiguration configuration)
         {
             _context = context;
             _userPasswordHasher = userPasswordHasher;
-            _studentPasswordHasher = studentPasswordHasher;
+            _configuration = configuration;
         }
 
         // GET: api/users
         [HttpGet]
         public async Task<IActionResult> GetUsers()
         {
-            var result = await _context.Users
+            var users = await _context.Users
                 .Select(user => new
                 {
                     user.Id,
                     user.Email,
                     user.FullName,
-                    user.Role
+                    Role = "User"
                 })
                 .ToListAsync();
 
-            return Ok(result);
+            return Ok(users);
         }
 
         // POST: api/users/register
-        // Teacher registration
         [HttpPost("register")]
+        [AllowAnonymous]
         public async Task<IActionResult> Register(
             [FromBody] RegisterRequest request)
         {
@@ -59,12 +65,12 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 });
             }
 
-            var email = request.Email.Trim();
+            string email = request.Email.Trim();
 
-            var existingUser = await _context.Users
-                .AnyAsync(u => u.Email.ToLower() == email.ToLower());
+            bool exists = await _context.Users.AnyAsync(u =>
+                u.Email.ToLower() == email.ToLower());
 
-            if (existingUser)
+            if (exists)
             {
                 return Conflict(new
                 {
@@ -77,7 +83,7 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 Email = email,
                 FullName = request.FullName.Trim(),
                 CreatedAt = DateTime.UtcNow,
-                Role = "Teacher"
+                Role = "User"
             };
 
             user.PasswordHash = _userPasswordHasher.HashPassword(
@@ -90,20 +96,20 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
 
             return Ok(new
             {
-                message = "Teacher account created successfully.",
-                teacher = new
+                message = "User account created successfully. Please log in.",
+                user = new
                 {
                     user.Id,
                     user.Email,
                     user.FullName,
-                    user.Role
+                    role = "User"
                 }
             });
         }
 
         // POST: api/users/login
-        // Teacher and Student login
         [HttpPost("login")]
+        [AllowAnonymous]
         public async Task<IActionResult> Login(
             [FromBody] LoginRequest request)
         {
@@ -117,164 +123,135 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 });
             }
 
-            // TEACHER LOGIN
-            if (request.AccountType.Equals(
-                "Teacher",
-                StringComparison.OrdinalIgnoreCase))
+            if (!request.AccountType.Equals(
+                    "User",
+                    StringComparison.OrdinalIgnoreCase))
             {
-                if (string.IsNullOrWhiteSpace(request.Email))
+                return Unauthorized(new
                 {
-                    return BadRequest(new
-                    {
-                        message = "Teacher email is required."
-                    });
-                }
-
-                var email = request.Email.Trim();
-
-                var teacher = await _context.Users
-                    .FirstOrDefaultAsync(u =>
-                        u.Email.ToLower() == email.ToLower());
-
-                if (teacher == null)
-                {
-                    return Unauthorized(new
-                    {
-                        message = "Invalid teacher email or password."
-                    });
-                }
-
-                var result = _userPasswordHasher.VerifyHashedPassword(
-                    teacher,
-                    teacher.PasswordHash,
-                    request.Password
-                );
-
-                if (result == PasswordVerificationResult.Failed)
-                {
-                    return Unauthorized(new
-                    {
-                        message = "Invalid teacher email or password."
-                    });
-                }
-
-                if (result == PasswordVerificationResult.SuccessRehashNeeded)
-                {
-                    teacher.PasswordHash =
-                        _userPasswordHasher.HashPassword(
-                            teacher,
-                            request.Password
-                        );
-
-                    await _context.SaveChangesAsync();
-                }
-
-                return Ok(new
-                {
-                    message = "Teacher login successful.",
-                    role = "Teacher",
-                    teacher = new
-                    {
-                        teacher.Id,
-                        teacher.Email,
-                        teacher.FullName,
-                        teacher.Role
-                    }
+                    message = "Invalid account type."
                 });
             }
 
-            // STUDENT LOGIN
-            if (request.AccountType.Equals(
-                "Student",
-                StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(request.Email))
             {
-                if (string.IsNullOrWhiteSpace(request.StudentId))
+                return BadRequest(new
                 {
-                    return BadRequest(new
-                    {
-                        message = "Student ID is required."
-                    });
-                }
-
-                var studentId = request.StudentId.Trim();
-
-                var student = await _context.Students
-                    .FirstOrDefaultAsync(s =>
-                        s.StudentId == studentId);
-
-                if (student == null || !student.IsActive)
-                {
-                    return Unauthorized(new
-                    {
-                        message = "Invalid student ID or password."
-                    });
-                }
-
-                if (string.IsNullOrWhiteSpace(student.PasswordHash))
-                {
-                    return Unauthorized(new
-                    {
-                        message = "Student account has no password yet. Please contact your teacher."
-                    });
-                }
-
-                var result = _studentPasswordHasher.VerifyHashedPassword(
-                    student,
-                    student.PasswordHash,
-                    request.Password
-                );
-
-                if (result == PasswordVerificationResult.Failed)
-                {
-                    return Unauthorized(new
-                    {
-                        message = "Invalid student ID or password."
-                    });
-                }
-
-                if (result == PasswordVerificationResult.SuccessRehashNeeded)
-                {
-                    student.PasswordHash =
-                        _studentPasswordHasher.HashPassword(
-                            student,
-                            request.Password
-                        );
-
-                    await _context.SaveChangesAsync();
-                }
-
-                return Ok(new
-                {
-                    message = "Student login successful.",
-                    role = "Student",
-                    student = new
-                    {
-                        student.Id,
-                        student.StudentId,
-                        student.FirstName,
-                        student.LastName,
-                        student.Email,
-                        student.Course,
-                        student.YearLevel,
-                        student.Section
-                    }
+                    message = "Email is required."
                 });
             }
 
-            return BadRequest(new
+            string email = request.Email.Trim();
+
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u =>
+                    u.Email.ToLower() == email.ToLower());
+
+            if (user == null ||
+                string.IsNullOrWhiteSpace(user.PasswordHash))
             {
-                message = "Invalid account type. Choose Teacher or Student."
+                return Unauthorized(new
+                {
+                    message = "Invalid email or password."
+                });
+            }
+
+            var result = _userPasswordHasher.VerifyHashedPassword(
+                user,
+                user.PasswordHash,
+                request.Password
+            );
+
+            if (result == PasswordVerificationResult.Failed)
+            {
+                return Unauthorized(new
+                {
+                    message = "Invalid email or password."
+                });
+            }
+
+            if (result == PasswordVerificationResult.SuccessRehashNeeded)
+            {
+                user.PasswordHash = _userPasswordHasher.HashPassword(
+                    user,
+                    request.Password
+                );
+
+                await _context.SaveChangesAsync();
+            }
+
+            DateTime issuedAt = DateTime.UtcNow;
+            DateTime expiresAt = issuedAt.AddMinutes(60);
+
+            string signingKey = _configuration["Jwt:Key"]
+                ?? throw new InvalidOperationException(
+                    "JWT signing key is not configured."
+                );
+
+            string issuer = _configuration["Jwt:Issuer"]
+                ?? "AttendTrack";
+
+            string audience = _configuration["Jwt:Audience"]
+                ?? "AttendTrackFrontend";
+
+            var claims = new[]
+            {
+                new Claim(
+                    ClaimTypes.NameIdentifier,
+                    user.Id.ToString()
+                ),
+                new Claim(
+                    ClaimTypes.Name,
+                    user.FullName
+                ),
+                new Claim(
+                    ClaimTypes.Email,
+                    user.Email
+                ),
+                new Claim(
+                    ClaimTypes.Role,
+                    "User"
+                )
+            };
+
+            var signingCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(signingKey)
+                ),
+                SecurityAlgorithms.HmacSha256
+            );
+
+            var token = new JwtSecurityToken(
+                issuer: issuer,
+                audience: audience,
+                claims: claims,
+                notBefore: issuedAt,
+                expires: expiresAt,
+                signingCredentials: signingCredentials
+            );
+
+            return Ok(new
+            {
+                message = "User login successful.",
+                role = "User",
+                accessToken = new JwtSecurityTokenHandler()
+                    .WriteToken(token),
+                expiresAt,
+                user = new
+                {
+                    user.Id,
+                    user.Email,
+                    user.FullName,
+                    role = "User"
+                }
             });
         }
     }
-
-    // REQUEST MODELS
 
     public class LoginRequest
     {
         public string AccountType { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
-        public string StudentId { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
     }
 
