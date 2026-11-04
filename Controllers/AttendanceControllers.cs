@@ -1,5 +1,6 @@
 
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using StudentAttendanceMonitoringSystem;
 using StudentAttendanceMonitoringSystem.Models;
@@ -8,6 +9,7 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Roles = "User")]
     public class AttendanceController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -33,7 +35,10 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 .FirstOrDefaultAsync(a => a.Id == id);
 
             if (record == null)
-                return NotFound(new { message = "Attendance record not found." });
+                return NotFound(new
+                {
+                    message = "Attendance record not found."
+                });
 
             return Ok(record);
         }
@@ -43,16 +48,25 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
         public async Task<IActionResult> AddAttendance(Attendance attendance)
         {
             if (attendance.StudentId <= 0)
-                return BadRequest(new { message = "Invalid Student ID." });
+                return BadRequest(new
+                {
+                    message = "Invalid Student ID."
+                });
 
             if (attendance.Status is not ("Present" or "Late" or "Absent"))
-                return BadRequest(new { message = "Invalid attendance status." });
+                return BadRequest(new
+                {
+                    message = "Invalid attendance status."
+                });
 
             bool studentExists = await _context.Students
                 .AnyAsync(s => s.Id == attendance.StudentId);
 
             if (!studentExists)
-                return BadRequest(new { message = "Student does not exist." });
+                return BadRequest(new
+                {
+                    message = "Student does not exist."
+                });
 
             bool alreadyExists = await _context.AttendanceRecords.AnyAsync(a =>
                 a.StudentId == attendance.StudentId &&
@@ -79,19 +93,31 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 .FirstOrDefaultAsync(a => a.Id == id);
 
             if (record == null)
-                return NotFound(new { message = "Attendance record not found." });
+                return NotFound(new
+                {
+                    message = "Attendance record not found."
+                });
 
             if (updated.StudentId <= 0)
-                return BadRequest(new { message = "Invalid Student ID." });
+                return BadRequest(new
+                {
+                    message = "Invalid Student ID."
+                });
 
             if (updated.Status is not ("Present" or "Late" or "Absent"))
-                return BadRequest(new { message = "Invalid attendance status." });
+                return BadRequest(new
+                {
+                    message = "Invalid attendance status."
+                });
 
             bool studentExists = await _context.Students
                 .AnyAsync(s => s.Id == updated.StudentId);
 
             if (!studentExists)
-                return BadRequest(new { message = "Student does not exist." });
+                return BadRequest(new
+                {
+                    message = "Student does not exist."
+                });
 
             bool duplicate = await _context.AttendanceRecords.AnyAsync(a =>
                 a.Id != id &&
@@ -124,7 +150,10 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 .FirstOrDefaultAsync(a => a.Id == id);
 
             if (record == null)
-                return NotFound(new { message = "Attendance record not found." });
+                return NotFound(new
+                {
+                    message = "Attendance record not found."
+                });
 
             _context.AttendanceRecords.Remove(record);
             await _context.SaveChangesAsync();
