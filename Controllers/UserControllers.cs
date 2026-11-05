@@ -14,7 +14,7 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "User")]
+    [Authorize]
     public class UsersController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -31,24 +31,114 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
             _configuration = configuration;
         }
 
-        // GET: api/users
+        // ==========================================
+        // GET ALL USERS - ADMIN ONLY
+        // GET: api/Users
+        // ==========================================
         [HttpGet]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetUsers()
         {
             var users = await _context.Users
+                .AsNoTracking()
                 .Select(user => new
                 {
                     user.Id,
                     user.Email,
                     user.FullName,
-                    Role = "User"
+                    user.Role
                 })
                 .ToListAsync();
 
             return Ok(users);
         }
 
-        // POST: api/users/register
+        // ==========================================
+        // UPDATE USER ROLE - ADMIN ONLY
+        // PUT: api/Users/{id}/role
+        // ==========================================
+        [HttpPut("{id:int}/role")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UpdateUserRole(
+            int id,
+            [FromBody] UpdateUserRoleRequest request)
+        {
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.Role))
+            {
+                return BadRequest(new
+                {
+                    message = "A role is required."
+                });
+            }
+
+            string role = request.Role.Trim();
+
+            if (!role.Equals(
+                    "Admin",
+                    StringComparison.OrdinalIgnoreCase) &&
+                !role.Equals(
+                    "User",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new
+                {
+                    message = "Role must be Admin or User."
+                });
+            }
+
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Id == id);
+
+            if (user == null)
+            {
+                return NotFound(new
+                {
+                    message = "User not found."
+                });
+            }
+
+            string normalizedRole = role.Equals(
+                "Admin",
+                StringComparison.OrdinalIgnoreCase)
+                ? "Admin"
+                : "User";
+
+            // Prevent an administrator from removing
+            // their own administrator access.
+            string? currentUserId =
+                User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (currentUserId == user.Id.ToString() &&
+                normalizedRole != "Admin")
+            {
+                return BadRequest(new
+                {
+                    message = "You cannot remove your own Admin role."
+                });
+            }
+
+            user.Role = normalizedRole;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "User role updated successfully.",
+                user = new
+                {
+                    user.Id,
+                    user.Email,
+                    user.FullName,
+                    user.Role
+                }
+            });
+        }
+
+        // ==========================================
+        // REGISTER USER
+        // POST: api/Users/register
+        // ==========================================
         [HttpPost("register")]
         [AllowAnonymous]
         public async Task<IActionResult> Register(
@@ -57,11 +147,12 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
             if (request == null ||
                 string.IsNullOrWhiteSpace(request.Email) ||
                 string.IsNullOrWhiteSpace(request.Password) ||
+                request.Password.Length < 8 ||
                 string.IsNullOrWhiteSpace(request.FullName))
             {
                 return BadRequest(new
                 {
-                    message = "Full name, email, and password are required."
+                    message = "Full name, email, and a password of at least 8 characters are required."
                 });
             }
 
@@ -83,7 +174,7 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 Email = email,
                 FullName = request.FullName.Trim(),
                 CreatedAt = DateTime.UtcNow,
-                Role = "User"
+                Role = "Pending"
             };
 
             user.PasswordHash = _userPasswordHasher.HashPassword(
@@ -96,18 +187,21 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
 
             return Ok(new
             {
-                message = "User account created successfully. Please log in.",
+                message = "User account created successfully. Account is pending administrator approval.",
                 user = new
                 {
                     user.Id,
                     user.Email,
                     user.FullName,
-                    role = "User"
+                    user.Role
                 }
             });
         }
 
-        // POST: api/users/login
+        // ==========================================
+        // LOGIN USER
+        // POST: api/Users/login
+        // ==========================================
         [HttpPost("login")]
         [AllowAnonymous]
         public async Task<IActionResult> Login(
@@ -170,12 +264,31 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 });
             }
 
-            if (result == PasswordVerificationResult.SuccessRehashNeeded)
+            if (user.Role == "Pending")
             {
-                user.PasswordHash = _userPasswordHasher.HashPassword(
-                    user,
-                    request.Password
-                );
+                return Unauthorized(new
+                {
+                    message = "Your account is pending activation. Ask the system administrator to assign your role."
+                });
+            }
+
+            if (user.Role != "Admin" &&
+                user.Role != "User")
+            {
+                return Unauthorized(new
+                {
+                    message = "Your account does not have a valid role."
+                });
+            }
+
+            if (result ==
+                PasswordVerificationResult.SuccessRehashNeeded)
+            {
+                user.PasswordHash =
+                    _userPasswordHasher.HashPassword(
+                        user,
+                        request.Password
+                    );
 
                 await _context.SaveChangesAsync();
             }
@@ -183,15 +296,18 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
             DateTime issuedAt = DateTime.UtcNow;
             DateTime expiresAt = issuedAt.AddMinutes(60);
 
-            string signingKey = _configuration["Jwt:Key"]
+            string signingKey =
+                _configuration["Jwt:Key"]
                 ?? throw new InvalidOperationException(
                     "JWT signing key is not configured."
                 );
 
-            string issuer = _configuration["Jwt:Issuer"]
+            string issuer =
+                _configuration["Jwt:Issuer"]
                 ?? "AttendTrack";
 
-            string audience = _configuration["Jwt:Audience"]
+            string audience =
+                _configuration["Jwt:Audience"]
                 ?? "AttendTrackFrontend";
 
             var claims = new[]
@@ -210,7 +326,7 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
                 ),
                 new Claim(
                     ClaimTypes.Role,
-                    "User"
+                    user.Role
                 )
             };
 
@@ -233,32 +349,58 @@ namespace StudentAttendanceMonitoringSystem.API.Controllers
             return Ok(new
             {
                 message = "User login successful.",
-                role = "User",
-                accessToken = new JwtSecurityTokenHandler()
-                    .WriteToken(token),
+                role = user.Role,
+                accessToken =
+                    new JwtSecurityTokenHandler()
+                        .WriteToken(token),
                 expiresAt,
                 user = new
                 {
                     user.Id,
                     user.Email,
                     user.FullName,
-                    role = "User"
+                    role = user.Role
                 }
             });
         }
     }
 
+    // ==========================================
+    // LOGIN REQUEST MODEL
+    // ==========================================
     public class LoginRequest
     {
-        public string AccountType { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
+        public string AccountType { get; set; } =
+            string.Empty;
+
+        public string Email { get; set; } =
+            string.Empty;
+
+        public string Password { get; set; } =
+            string.Empty;
     }
 
+    // ==========================================
+    // REGISTER REQUEST MODEL
+    // ==========================================
     public class RegisterRequest
     {
-        public string Email { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-        public string FullName { get; set; } = string.Empty;
+        public string Email { get; set; } =
+            string.Empty;
+
+        public string Password { get; set; } =
+            string.Empty;
+
+        public string FullName { get; set; } =
+            string.Empty;
+    }
+
+    // ==========================================
+    // UPDATE ROLE REQUEST MODEL
+    // ==========================================
+    public class UpdateUserRoleRequest
+    {
+        public string Role { get; set; } =
+            string.Empty;
     }
 }
